@@ -1,0 +1,73 @@
+import numpy as np
+import sys
+
+def run_cascaded_crn_sweep(trials_per_combo):
+    # State Vector Mapping: [x, b, a, c, xp, d, y, yp]
+    
+    # Priority Mapping
+    p = {
+        1: 1e12,  # P1 (Highest) - Math
+        2: 1e9,   # P2 - Cleanup
+        3: 1e6,   # P3 - Resets
+        4: 1e3,   # P4 - Hand-off
+        5: 1      # P5 (Lowest) - Master Clock
+    }
+
+    # Sweep X0 through the first 10 powers of 2: 2, 4, 8, ..., 1024
+    X0_range = [2**i for i in range(1, 11)]
+    B_val = 1
+    
+    print(f"{'X0':<6} | {'B':<3} | {'Expected':<10} | {'Result (Y)':<12} | {'Accuracy':<8}")
+    print("-" * 60)
+
+    for X0 in X0_range:
+        results = []
+        # Since log2(X0) is a clean integer, Y = 2^(log2(X0)) = X0
+        expected = float(X0)
+        
+        for t in range(trials_per_combo):
+            # Initial State: y=1, x=X0, b=1
+            s = np.array([X0, B_val, 0, 0, 0, 0, 1, 0], dtype=float)
+            step = 0
+            
+            # Loop while logic is processing
+            while (s[0] > 1 or any(s[i] > 0 for i in [2, 3, 4, 5, 7])):
+                step += 1
+                props = [
+                    p[5] * s[1] if s[0] > 1 else 0,      # 1: b -> a + b
+                    p[1] * s[2] * (s[0]*(s[0]-1)//2),   # 2: a + 2x -> c + x' + a
+                    p[1] * (s[3]*(s[3]-1)//2),          # 3: 2c -> c
+                    p[2] * s[2],                        # 4: a -> 0
+                    p[3] * s[4],                        # 5: x' -> x
+                    p[4] * s[3],                        # 6: c -> d
+                    p[1] * s[5] * s[6],                 # 7: d + y -> d + 2y'
+                    p[2] * s[5],                        # 8: d -> 0
+                    p[3] * s[7]                         # 9: y' -> y
+                ]
+                
+                p_sum = sum(props)
+                if p_sum <= 1e-12: break
+                
+                event = np.searchsorted(np.cumsum(props), np.random.uniform(0, p_sum))
+                
+                # Transitions
+                if event == 0:   s[2] += 1
+                elif event == 1: s[0]-=2; s[3]+=1; s[4]+=1
+                elif event == 2: s[3]-=1
+                elif event == 3: s[2]-=1
+                elif event == 4: s[4]-=1; s[0]+=1
+                elif event == 5: s[3]-=1; s[5]+=1
+                elif event == 6: s[6]-=1; s[7]+=2
+                elif event == 7: s[5]-=1
+                elif event == 8: s[7]-=1; s[6]+=1
+                
+                if step > 100000: break # Increased limit for higher X0
+            
+            results.append(s[6])
+
+        avg_y = np.mean(results)
+        accuracy = (1 - abs(expected - avg_y) / expected) * 100 if expected != 0 else 100
+        print(f"{int(X0):<6} | {int(B_val):<3} | {expected:<10.2f} | {avg_y:<12.4f} | {accuracy:.1f}%")
+
+# Run 1000 trials per combination
+run_cascaded_crn_sweep(trials_per_combo=1000)
