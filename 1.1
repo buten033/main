@@ -1,1 +1,98 @@
+import numpy as np
+from tqdm import trange
 
+rng = np.random.default_rng()
+
+# single knob for number of trials
+N_TRIALS = 1000
+
+
+def gillespie_run(x1, x2, x3, max_steps=200000):
+    r1_count = 0
+    r2_count = 0
+    r3_count = 0
+
+    for _ in range(max_steps):
+
+        # stopping conditions
+        if x1 >= 150:
+            return 1, r1_count, r2_count, r3_count
+        if x2 < 10:
+            return 2, r1_count, r2_count, r3_count
+        if x3 > 100:
+            return 3, r1_count, r2_count, r3_count
+
+        # propensities
+        a1 = 0.5 * x1 * (x1 - 1) * x2
+        a2 = x1 * x3 * (x3 - 1)
+        a3 = 3 * x2 * x3
+        a0 = a1 + a2 + a3
+
+        if a0 == 0:
+            return None, r1_count, r2_count, r3_count
+
+        r = rng.random() * a0
+
+        if r < a1:
+            # R1
+            x1 -= 2
+            x2 -= 1
+            x3 += 4
+            r1_count += 1
+
+        elif r < a1 + a2:
+            # R2
+            x1 -= 1
+            x2 += 3
+            x3 -= 2
+            r2_count += 1
+
+        else:
+            # R3
+            x1 += 2
+            x2 -= 1
+            x3 -= 1
+            r3_count += 1
+
+    return None, r1_count, r2_count, r3_count
+
+
+def estimate_probabilities():
+    counts = np.zeros(3)
+
+    total_r1 = 0
+    total_r2 = 0
+    total_r3 = 0
+
+    for _ in trange(N_TRIALS):
+        result, r1, r2, r3 = gillespie_run(110, 26, 55)
+
+        total_r1 += r1
+        total_r2 += r2
+        total_r3 += r3
+
+        if result is not None:
+            counts[result - 1] += 1
+
+    probs = counts / counts.sum()
+    return counts, probs, total_r1, total_r2, total_r3
+
+
+# run
+counts, probs, R1_tot, R2_tot, R3_tot = estimate_probabilities()
+
+print("\nTermination counts:", counts)
+print("Estimated probabilities:")
+print(f"Pr(C1) = {probs[0]:.4f}")
+print(f"Pr(C2) = {probs[1]:.4f}")
+print(f"Pr(C3) = {probs[2]:.4f}")
+
+print("\nTotal reaction firings across all runs:")
+print(f"R1 fired {R1_tot:,} times")
+print(f"R2 fired {R2_tot:,} times")
+print(f"R3 fired {R3_tot:,} times")
+
+print("\nAverage firings per trajectory:")
+print(f"R1: {R1_tot / N_TRIALS:.2f}")
+print(f"R2: {R2_tot / N_TRIALS:.2f}")
+print(f"R3: {R3_tot / N_TRIALS:.2f}")
