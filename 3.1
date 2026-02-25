@@ -1,1 +1,76 @@
+import numpy as np
+import sys
 
+def run_priority_crn_sweep(trials_per_combo):
+    # State Vector: [w, e, d, c, wp, v, x, a, vp, z]
+    
+    # Priority Mapping (P1 is highest, P6 is lowest)
+    p = {
+        1: 1e15,  # P1
+        2: 1e12,  # P2
+        3: 1e9,   # P3
+        4: 1e6,   # P4 
+        5: 1e3,   # P5
+        6: 1      # P6
+    }
+
+    # Define 50 combinations: 5 values of W * 10 values of X = 50 combos
+    W_range = [2, 4, 8, 16, 32]
+    X_range = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    
+    print(f"{'W':<4} | {'X':<4} | {'Expected':<10} | {'Result (Z)':<12} | {'Accuracy':<8}")
+    print("-" * 55)
+
+    for W0 in W_range:
+        for X0 in X_range:
+            results = []
+            expected = X0 * np.log2(W0)
+            
+            for t in range(trials_per_combo):
+                # Initial State
+                s = np.array([W0, 1, 0, 0, 0, 0, X0, 0, 0, 0], dtype=float)
+                step = 0
+                
+                # Execution loop
+                while (s[0] > 1 or any(s[i] > 0 for i in [2, 3, 4, 5, 7, 8])):
+                    step += 1
+                    props = [
+                        p[4] * s[1] * (s[0]*(s[0]-1)//2),   # 1: e + 2w -> d + e + 2w
+                        p[1] * s[2] * (s[0]*(s[0]-1)//2),   # 2: d + 2w -> c + w' + d 
+                        p[1] * (s[3]*(s[3]-1)//2),          # 3: 2c -> c 
+                        p[2] * s[2],                        # 4: d -> nothing 
+                        p[3] * s[4],                        # 5: w' -> w 
+                        p[3] * s[3],                        # 6: c -> v 
+                        p[6] * s[6],                        # 7: x -> a 
+                        p[3] * s[7] * s[5],                 # 8: a + v -> a + v' + z 
+                        p[4] * s[7],                        # 9: a -> nothing 
+                        p[5] * s[8]                         # 10: v' -> v 
+                    ]
+                    
+                    p_sum = sum(props)
+                    if p_sum <= 1e-12: break
+                    
+                    event_idx = np.searchsorted(np.cumsum(props), np.random.uniform(0, p_sum))
+                    
+                    # State Transitions
+                    if event_idx == 0:   s[2] += 1                      # e+2w > d+e+2w
+                    elif event_idx == 1: s[0]-=2; s[3]+=1; s[4]+=1      # d+2w > c+w'+d
+                    elif event_idx == 2: s[3]-=1                        # 2c > c
+                    elif event_idx == 3: s[2]-=1                        # d > nothing
+                    elif event_idx == 4: s[4]-=1; s[0]+=1               # w' > w
+                    elif event_idx == 5: s[3]-=1; s[5]+=1               # c > v
+                    elif event_idx == 6: s[6]-=1; s[7]+=1               # x > a
+                    elif event_idx == 7: s[9]+=1; s[8]+=1; s[5]-=1      # a+v > a+v'+z
+                    elif event_idx == 8: s[7]-=1                        # a > nothing
+                    elif event_idx == 9: s[8]-=1; s[5]+=1               # v' > v
+                    
+                    if step > 20000: break
+                
+                results.append(s[9])
+
+            avg_z = np.mean(results)
+            accuracy = (1 - abs(expected - avg_z) / expected) * 100 if expected != 0 else 100
+            print(f"{int(W0):<4} | {int(X0):<4} | {expected:<10.2f} | {avg_z:<12.4f} | {accuracy:.1f}%")
+
+# Run the sweep with 1000 tests per combo
+run_priority_crn_sweep(trials_per_combo=1000)
