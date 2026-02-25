@@ -1,1 +1,54 @@
+import numpy as np
+from numba import njit
 
+@njit
+def simulate(n_trials):
+    results = np.empty((n_trials, 3), dtype=np.int64)
+    for i in range(n_trials):
+        x1, x2, x3 = 9, 8, 7
+        for _ in range(7):
+            a1 = 0.5 * x1 * (x1 - 1) * x2
+            a2 = x1 * x3 * (x3 - 1)
+            a3 = 3.0 * x2 * x3
+            a0 = a1 + a2 + a3
+            if a0 == 0:
+                break
+            r = np.random.random() * a0
+            if r < a1:
+                x1 -= 2; x2 -= 1; x3 += 4
+            elif r < a1 + a2:
+                x1 -= 1; x2 += 3; x3 -= 2
+            else:
+                x1 += 2; x2 -= 1; x3 -= 1
+        results[i, 0] = x1
+        results[i, 1] = x2
+        results[i, 2] = x3
+    return results
+
+def print_stats(results, label):
+    r = results.astype(float)
+    print(f"\n--- N = {label} ---")
+    for i, name in enumerate(['X1', 'X2', 'X3']):
+        print(f"  {name}:  mean = {r[:,i].mean():.6f},  var = {r[:,i].var():.6f}")
+
+simulate(1)  # JIT warmup
+
+checkpoints = [100_000, 1_000_000, 10_000_000, 100_000_000]
+labels      = ['100k',  '1M',      '10M',       '100M']
+
+collected = []
+prev = 0
+for n, label in zip(checkpoints, labels):
+    batch = simulate(n - prev)
+    collected.append(batch)
+    all_results = np.concatenate(collected)
+    print_stats(all_results, label)
+    prev = n
+
+# Final results: 3 sig fig rounded from 100M trials
+print("\n=== FINAL RESULTS (3 sig fig, N=100M) ===")
+r = all_results.astype(float)
+for i, name in enumerate(['X1', 'X2', 'X3']):
+    mean = float(f"{r[:,i].mean():.3g}")
+    var  = float(f"{r[:,i].var():.3g}")
+    print(f"  {name}:  mean = {mean},  var = {var}")
