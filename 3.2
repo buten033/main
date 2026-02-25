@@ -6,14 +6,14 @@ def run_cascaded_crn_sweep(trials_per_combo):
     
     # Priority Mapping
     p = {
-        1: 1e12,  # P1 (Highest) - Math
-        2: 1e9,   # P2 - Cleanup
-        3: 1e6,   # P3 - Resets
-        4: 1e3,   # P4 - Hand-off
-        5: 1      # P5 (Lowest) - Master Clock
+        1: 1e12,  # P1
+        2: 1e9,   # P2
+        3: 1e6,   # P3 
+        4: 1e3,   # P4 
+        5: 1      # P5 
     }
 
-    # Sweep X0 through the first 10 powers of 2: 2, 4, 8, ..., 1024
+    # Sweep X0 through the first 10 powers of 2: 2, 4, 8, ..., 1024 for proof of valid CRN
     X0_range = [2**i for i in range(1, 11)]
     B_val = 1
     
@@ -61,7 +61,7 @@ def run_cascaded_crn_sweep(trials_per_combo):
                 elif event == 7: s[5]-=1
                 elif event == 8: s[7]-=1; s[6]+=1
                 
-                if step > 100000: break # Increased limit for higher X0
+                if step > 100000: break 
             
             results.append(s[6])
 
@@ -69,5 +69,5 @@ def run_cascaded_crn_sweep(trials_per_combo):
         accuracy = (1 - abs(expected - avg_y) / expected) * 100 if expected != 0 else 100
         print(f"{int(X0):<6} | {int(B_val):<3} | {expected:<10.2f} | {avg_y:<12.4f} | {accuracy:.1f}%")
 
-# Run 1000 trials per combination
+# Run 1000 trials per combination (or can set to more optimat value if running slow/need larger amount of trials)
 run_cascaded_crn_sweep(trials_per_combo=1000)
