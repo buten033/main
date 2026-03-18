@@ -1,0 +1,81 @@
+import numpy as np
+from tqdm.auto import tqdm
+
+def run_biquad_phase(initial_state, x_input, steps=10000):
+    """
+    Species Mapping:
+    0:X, 1:W, 2:R, 3:G, 4:B, 5:Y (Signals)
+    6:r, 7:g, 8:b (Absence Indicators)
+    """
+    s = np.zeros(9)
+    s[0:6] = initial_state[0:6]
+    s[0] = x_input  # New input for this cycle
+    
+    s[6:9] = 10.0 
+    
+    k_fast = 1000.0
+    k_slow = 1.0
+    
+    for _ in range(steps):
+        red_val = s[1] + s[2]
+        green_val = s[3]
+        blue_val = s[0] + s[4]
+
+        props = np.array([
+            k_slow * s[0] * s[7], 
+            k_slow * (s[2]/8 + s[4]/8) * s[7],
+            k_slow * s[1] * s[7], 
+            k_slow * s[3] * s[8], 
+            k_slow * s[4] * s[6], 
+            k_slow * (s[1]/8 + s[2]/8 + s[4]/8),
+            k_fast if red_val < 0.1 else 0,   
+            k_fast if green_val < 0.1 else 0, 
+            k_fast if blue_val < 0.1 else 0    
+        ])
+        
+        p_sum = np.sum(props)
+        if p_sum <= 0: break
+        
+        r_val = np.random.uniform(0, p_sum)
+        event = np.searchsorted(np.cumsum(props), r_val)
+        
+        if event == 0: s[0] -= 1; s[1] += 1
+        elif event == 1: s[1] += 1
+        elif event == 2: s[1] -= 1; s[3] += 1
+        elif event == 3: s[3] -= 1; s[4] += 1
+        elif event == 4: s[4] -= 1; s[2] += 1
+        elif event == 5: s[5] += 1
+        elif event == 6: s[6] = 10.0
+        elif event == 7: s[7] = 10.0
+        elif event == 8: s[8] = 10.0
+            
+    return s
+
+# --- Execution for 5 RGB Cycles ---
+inputs = [100, 5, 500, 20, 250]
+state = [0, 0, 0, 0, 0, 0]
+
+# Theoretical memory
+w_n1 = 0.0
+w_n2 = 0.0
+
+print(f"{'Cycle':<8} | {'Input':<8} | {'Expected Y':<12} | {'Observed Y':<12}")
+print("-" * 50)
+
+for i, x_val in enumerate(inputs):
+    # 1. Calculate Theoretical Value
+    w_curr = x_val + (1/8 * w_n1) + (1/8 * w_n2)
+    expected_y = (1/8 * w_curr) + (1/8 * w_n1) + (1/8 * w_n2)
+    
+    # 2. Run the stochastic simulation
+    final_state = run_biquad_phase(state, x_val)
+    observed_y = final_state[5]
+    
+    print(f"{i+1:<8} | {x_val:<8} | {expected_y:<12.2f} | {observed_y:<12.2f}")
+    
+    # 3. Update state for next cycle
+    state = [0, 0, final_state[2], 0, final_state[4], 0]
+    
+    # 4. Update theoretical memory
+    w_n2 = w_n1
+    w_n1 = w_curr
