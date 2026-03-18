@@ -1,81 +1,90 @@
 import numpy as np
-from tqdm.auto import tqdm
 
-def run_biquad_phase(initial_state, x_input, steps=10000):
+def run_stochastic_biquad_scaled(inputs, scale_factor=100):
     """
-    Species Mapping:
-    0:X, 1:W, 2:R, 3:G, 4:B, 5:Y (Signals)
-    6:r, 7:g, 8:b (Absence Indicators)
+    Simulates a stochastic CRN for a biquad filter using Fixed-Point Scaling
+    to achieve decimal precision in a single run.
     """
-    s = np.zeros(9)
-    s[0:6] = initial_state[0:6]
-    s[0] = x_input  # New input for this cycle
-    
-    s[6:9] = 10.0 
-    
-    k_fast = 1000.0
+    k_fast = 1000.0 
     k_slow = 1.0
     
-    for _ in range(steps):
-        red_val = s[1] + s[2]
-        green_val = s[3]
-        blue_val = s[0] + s[4]
+    # State Array: [X, B1, B2, A, R1, R2, Y, G1, G2, P1, P2, P3]
+    state = np.zeros(12, dtype=int)
+    cycle_idx = 0
+    
+    # Initialize first cycle WITH SCALING
+    state[0] = inputs[cycle_idx] * scale_factor
+    state[9] = 1  # Start in Phase 1 (Compute)
+    outputs = []
 
-        props = np.array([
-            k_slow * s[0] * s[7], 
-            k_slow * (s[2]/8 + s[4]/8) * s[7],
-            k_slow * s[1] * s[7], 
-            k_slow * s[3] * s[8], 
-            k_slow * s[4] * s[6], 
-            k_slow * (s[1]/8 + s[2]/8 + s[4]/8),
-            k_fast if red_val < 0.1 else 0,   
-            k_fast if green_val < 0.1 else 0, 
-            k_fast if blue_val < 0.1 else 0    
-        ])
+    while cycle_idx < len(inputs):
+        X, B1, B2, A, R1, R2, Y, G1, G2, P1, P2, P3 = state
+
+        # --- Propensities (Integer math maintained under the hood) ---
+        props = [
+            k_fast * X * P1,                                                # 0: X -> A
+            k_fast * P1 if B1 >= 8 else 0,                                  # 1: 8 B1 -> 8 R2 + Y + A
+            k_fast * P1 if B2 >= 8 else 0,                                  # 2: 8 B2 -> Y + A
+            k_fast * P1 if A >= 8 else 0,                                   # 3: 8 A -> 8 R1 + Y
+            k_slow * P1 if (X == 0 and B1 < 8 and B2 < 8 and A < 8) else 0, # 4: P1 -> P2
+            k_fast * R1 * P2,                                               # 5: R1 -> G1
+            k_fast * R2 * P2,                                               # 6: R2 -> G2
+            k_slow * P2 if (R1 == 0 and R2 == 0) else 0,                    # 7: P2 -> P3
+            k_fast * G1 * P3,                                               # 8: G1 -> B1
+            k_fast * G2 * P3,                                               # 9: G2 -> B2
+            k_slow * P3 if (G1 == 0 and G2 == 0) else 0                     # 10: P3 -> P1 (Tick)
+        ]
         
-        p_sum = np.sum(props)
+        p_sum = sum(props)
         if p_sum <= 0: break
-        
-        r_val = np.random.uniform(0, p_sum)
-        event = np.searchsorted(np.cumsum(props), r_val)
-        
-        if event == 0: s[0] -= 1; s[1] += 1
-        elif event == 1: s[1] += 1
-        elif event == 2: s[1] -= 1; s[3] += 1
-        elif event == 3: s[3] -= 1; s[4] += 1
-        elif event == 4: s[4] -= 1; s[2] += 1
-        elif event == 5: s[5] += 1
-        elif event == 6: s[6] = 10.0
-        elif event == 7: s[7] = 10.0
-        elif event == 8: s[8] = 10.0
-            
-    return s
 
-# --- Execution for 5 RGB Cycles ---
+        r = np.random.uniform(0, p_sum)
+        event = np.searchsorted(np.cumsum(props), r)
+
+        # --- State Updates ---
+        if event == 0:   state[0] -= 1; state[3] += 1
+        elif event == 1: state[1] -= 8; state[5] += 8; state[6] += 1; state[3] += 1
+        elif event == 2: state[2] -= 8; state[6] += 1; state[3] += 1
+        elif event == 3: state[3] -= 8; state[4] += 8; state[6] += 1
+        elif event == 4: state[9] = 0; state[10] = 1 
+        elif event == 5: state[4] -= 1; state[7] += 1
+        elif event == 6: state[5] -= 1; state[8] += 1
+        elif event == 7: state[10] = 0; state[11] = 1
+        elif event == 8: state[7] -= 1; state[1] += 1
+        elif event == 9: state[8] -= 1; state[2] += 1
+        elif event == 10:
+            # Output sampling: Scale back down to get the exact fraction!
+            scaled_output = state[6] / scale_factor
+            outputs.append(scaled_output) 
+            state[6] = 0                  
+            cycle_idx += 1
+            if cycle_idx < len(inputs):
+                state[0] = inputs[cycle_idx] * scale_factor
+                state[11] = 0; state[9] = 1 
+            else:
+                state[11] = 0
+
+    return outputs
+
+def theoretical_biquad(inputs):
+    """Calculates the exact math using floating point DSP logic."""
+    A = np.zeros(len(inputs) + 2)
+    Y = np.zeros(len(inputs))
+    for i, x in enumerate(inputs):
+        n = i + 2
+        A[n] = x + A[n-1]/8.0 + A[n-2]/8.0
+        Y[i] = A[n]/8.0 + A[n-1]/8.0 + A[n-2]/8.0
+    return Y
+
+# --- Execution ---
 inputs = [100, 5, 500, 20, 250]
-state = [0, 0, 0, 0, 0, 0]
+theoretical_y = theoretical_biquad(inputs)
 
-# Theoretical memory
-w_n1 = 0.0
-w_n2 = 0.0
+# Only running it 1 time now!
+crn_outputs = run_stochastic_biquad_scaled(inputs, scale_factor=100)
 
-print(f"{'Cycle':<8} | {'Input':<8} | {'Expected Y':<12} | {'Observed Y':<12}")
-print("-" * 50)
-
-for i, x_val in enumerate(inputs):
-    # 1. Calculate Theoretical Value
-    w_curr = x_val + (1/8 * w_n1) + (1/8 * w_n2)
-    expected_y = (1/8 * w_curr) + (1/8 * w_n1) + (1/8 * w_n2)
-    
-    # 2. Run the stochastic simulation
-    final_state = run_biquad_phase(state, x_val)
-    observed_y = final_state[5]
-    
-    print(f"{i+1:<8} | {x_val:<8} | {expected_y:<12.2f} | {observed_y:<12.2f}")
-    
-    # 3. Update state for next cycle
-    state = [0, 0, final_state[2], 0, final_state[4], 0]
-    
-    # 4. Update theoretical memory
-    w_n2 = w_n1
-    w_n1 = w_curr
+# --- Formatted Output ---
+print(f"{'Cycle':<7} | {'Input X':<8} | {'Expected Y':<11} | {'Observed Y (1 Run)'}")
+print("-" * 55)
+for i in range(len(inputs)):
+    print(f"{i+1:<7} | {inputs[i]:<8} | {theoretical_y[i]:<11.2f} | {crn_outputs[i]:.2f}")
