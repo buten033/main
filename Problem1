@@ -1,0 +1,70 @@
+import numpy as np
+from tqdm.auto import tqdm
+
+def run_stochastic_fibonacci(a_init, b_init, target_steps=12):
+    # Species Index Map:
+    # 0: A (F_n-2), 1: B (F_n-1), 2: C (Sum), 3: S (Steps)
+    # 4: P (Sum Phase Signal), 5: Q (Shift Phase Signal), 6: T (Temp Copy)
+    
+    state = np.array([a_init, b_init, 0, target_steps, 1, 0, 0], dtype=float)
+    
+    # Rates: Math is fast, Phase transitions are slow
+    k_fast = 1000.0 
+    k_slow = 1.0
+
+    while state[3] > 0:
+        # --- Propensities ---
+        # 0: A + P -> C + P (Move A to Sum)
+        # 1: B + P -> C + T + P (Copy B to Sum and Temp)
+        # 2: P -> Q (Tick: Only when A and B are moved to C and T)
+        # 3: T + Q -> B + Q (Restore B from Temp)
+        # 4: C + Q -> B + Q (Move Sum to B)
+        # 5: Q + S -> P (Reset: Only when C and T are moved)
+        
+        props = [
+            k_fast * state[0] * state[4],             # 0: A -> C
+            k_fast * state[1] * state[4],             # 1: B -> C + T
+            k_slow * state[4] if (state[0] == 0 and state[1] == 0) else 0, # 2: P -> Q
+            k_fast * state[6] * state[5],             # 3: T -> B
+            k_fast * state[2] * state[5],             # 4: C -> B
+            k_slow * state[5] if (state[2] == 0 and state[6] == 0) else 0  # 5: Q -> P
+        ]
+        
+        p_sum = sum(props)
+        if p_sum <= 0: break
+
+        r = np.random.uniform(0, p_sum)
+        event = np.searchsorted(np.cumsum(props), r)
+
+        if event == 0:   # A moves to C
+            state[0] -= 1; state[2] += 1
+        elif event == 1: # B moves to C and T (T is the new A)
+            state[1] -= 1; state[2] += 1; state[6] += 1
+        elif event == 2: # P -> Q (Shift Phase Starts)
+            state[4] = 0; state[5] = 1; state[0] = 0
+        elif event == 3: # T moves to B (actually moves to A for next step)
+            state[6] -= 1; state[0] += 1
+        elif event == 4: # C moves to B
+            state[2] -= 1; state[1] += 1
+        elif event == 5: # Q -> P (Next Iteration)
+            state[5] = 0; state[4] = 1; state[3] -= 1
+
+    return int(state[1])
+
+def run_test_suite(a, b, steps=12, trials=100):
+    print(f"\n--- Simulating Start ({a}, {b}) for {steps} steps ---")
+    results = [run_stochastic_fibonacci(a, b, steps) for _ in tqdm(range(trials))]
+    
+    # Calculate Theoretical Result
+    sa, sb = a, b
+    for _ in range(steps):
+        sa, sb = sb, sa + sb
+    theoretical = sb
+    
+    print(f"Theoretical Result: {theoretical}")
+    print(f"Observed Average:    {np.mean(results):.2f}")
+    print(f"Success Rate:        {(results.count(theoretical)/trials)*100:.2f}%")
+
+# --- Run Scenarios ---
+run_test_suite(0, 1)
+run_test_suite(3, 7)
