@@ -1,68 +1,79 @@
 import numpy as np
 
-def run_stochastic_biquad_scaled(inputs, scale_factor=100):
+def run_stochastic_biquad_scaled(inputs, scale_factor=1000):
     """
-    Simulates a stochastic CRN for a biquad filter using Fixed-Point Scaling
-    to achieve decimal precision in a single run.
+    Simulates the g->b->r Biquad CRN using Fixed-Point Scaling 
+    to prevent precision loss and output continuous decimals.
     """
     k_fast = 1000.0 
     k_slow = 1.0
     
-    # State Array: [X, B1, B2, A, R1, R2, Y, G1, G2, P1, P2, P3]
-    state = np.zeros(12, dtype=int)
+    # State Array: [X, A, Ac, B1, B1c, B2, B2c, R1, R2, G1, G2, Y, g, b, r]
+    state = np.zeros(15, dtype=int)
     cycle_idx = 0
     
     # Initialize first cycle WITH SCALING
     state[0] = inputs[cycle_idx] * scale_factor
-    state[9] = 1  # Start in Phase 1 (Compute)
+    state[12] = 1  # Start in Green phase
     outputs = []
 
     while cycle_idx < len(inputs):
-        X, B1, B2, A, R1, R2, Y, G1, G2, P1, P2, P3 = state
+        X, A, Ac, B1, B1c, B2, B2c, R1, R2, G1, G2, Y, g, b, r = state
 
-        # --- Propensities (Integer math maintained under the hood) ---
+        # --- Propensities ---
         props = [
-            k_fast * X * P1,                                                # 0: X -> A
-            k_fast * P1 if B1 >= 8 else 0,                                  # 1: 8 B1 -> 8 R2 + Y + A
-            k_fast * P1 if B2 >= 8 else 0,                                  # 2: 8 B2 -> Y + A
-            k_fast * P1 if A >= 8 else 0,                                   # 3: 8 A -> 8 R1 + Y
-            k_slow * P1 if (X == 0 and B1 < 8 and B2 < 8 and A < 8) else 0, # 4: P1 -> P2
-            k_fast * R1 * P2,                                               # 5: R1 -> G1
-            k_fast * R2 * P2,                                               # 6: R2 -> G2
-            k_slow * P2 if (R1 == 0 and R2 == 0) else 0,                    # 7: P2 -> P3
-            k_fast * G1 * P3,                                               # 8: G1 -> B1
-            k_fast * G2 * P3,                                               # 9: G2 -> B2
-            k_slow * P3 if (G1 == 0 and G2 == 0) else 0                     # 10: P3 -> P1 (Tick)
+            # --- GREEN PHASE ---
+            k_slow * X * g,                                  
+            k_slow * B1 * g,                                 
+            k_slow * B2 * g,                                 
+            k_slow * A * g,                                  
+            k_fast * g if B1c >= 8 else 0,                   
+            k_fast * g if B2c >= 8 else 0,                   
+            k_fast * g if Ac >= 8 else 0,                    
+            k_slow * g if (X == 0 and B1 == 0 and B2 == 0 and A == 0 and B1c < 8 and B2c < 8 and Ac < 8) else 0, 
+
+            # --- BLUE PHASE ---
+            k_slow * R1 * b,                                 
+            k_slow * R2 * b,                                 
+            k_slow * b if (R1 == 0 and R2 == 0) else 0,      
+            
+            # --- RED PHASE ---
+            k_slow * G1 * r,                                 
+            k_slow * G2 * r,                                 
+            k_slow * r if (G1 == 0 and G2 == 0) else 0       
         ]
         
         p_sum = sum(props)
         if p_sum <= 0: break
 
-        r = np.random.uniform(0, p_sum)
-        event = np.searchsorted(np.cumsum(props), r)
+        r_rand = np.random.uniform(0, p_sum)
+        event = np.searchsorted(np.cumsum(props), r_rand)
 
         # --- State Updates ---
-        if event == 0:   state[0] -= 1; state[3] += 1
-        elif event == 1: state[1] -= 8; state[5] += 8; state[6] += 1; state[3] += 1
-        elif event == 2: state[2] -= 8; state[6] += 1; state[3] += 1
-        elif event == 3: state[3] -= 8; state[4] += 8; state[6] += 1
-        elif event == 4: state[9] = 0; state[10] = 1 
-        elif event == 5: state[4] -= 1; state[7] += 1
-        elif event == 6: state[5] -= 1; state[8] += 1
-        elif event == 7: state[10] = 0; state[11] = 1
-        elif event == 8: state[7] -= 1; state[1] += 1
-        elif event == 9: state[8] -= 1; state[2] += 1
-        elif event == 10:
-            # Output sampling: Scale back down to get the exact fraction!
-            scaled_output = state[6] / scale_factor
-            outputs.append(scaled_output) 
-            state[6] = 0                  
+        if event == 0:   state[0] -= 1; state[1] += 1
+        elif event == 1: state[3] -= 1; state[4] += 1
+        elif event == 2: state[5] -= 1; state[6] += 1
+        elif event == 3: state[1] -= 1; state[2] += 1
+        elif event == 4: state[4] -= 8; state[8] += 8; state[11] += 1; state[1] += 1
+        elif event == 5: state[6] -= 8; state[11] += 1; state[1] += 1
+        elif event == 6: state[2] -= 8; state[7] += 8; state[11] += 1
+        elif event == 7: state[12] = 0; state[13] = 1       
+        elif event == 8: state[7] -= 1; state[9] += 1
+        elif event == 9: state[8] -= 1; state[10] += 1
+        elif event == 10: state[13] = 0; state[14] = 1      
+        elif event == 11: state[9] -= 1; state[3] += 1
+        elif event == 12: state[10] -= 1; state[5] += 1
+        elif event == 13:
+            # Output sampling: SCALE BACK DOWN to get the high-precision decimal
+            outputs.append(state[11] / scale_factor) 
+            state[11] = 0                  
             cycle_idx += 1
             if cycle_idx < len(inputs):
+                # Scale the next input
                 state[0] = inputs[cycle_idx] * scale_factor
-                state[11] = 0; state[9] = 1 
+                state[14] = 0; state[12] = 1                
             else:
-                state[11] = 0
+                state[14] = 0
 
     return outputs
 
@@ -80,11 +91,11 @@ def theoretical_biquad(inputs):
 inputs = [100, 5, 500, 20, 250]
 theoretical_y = theoretical_biquad(inputs)
 
-# Only running it 1 time now!
+# Run the scaled stochastic simulation ONCE
 crn_outputs = run_stochastic_biquad_scaled(inputs, scale_factor=100)
 
 # --- Formatted Output ---
-print(f"{'Cycle':<7} | {'Input X':<8} | {'Expected Y':<11} | {'Observed Y (1 Run)'}")
+print(f"{'Cycle':<7} | {'Input X':<8} | {'Expected Y':<11} | {'Observed Y (Scaled)'}")
 print("-" * 55)
 for i in range(len(inputs)):
-    print(f"{i+1:<7} | {inputs[i]:<8} | {theoretical_y[i]:<11.2f} | {crn_outputs[i]:.2f}")
+    print(f"{i+1:<7} | {inputs[i]:<8} | {theoretical_y[i]:<11.3f} | {crn_outputs[i]:.3f}")
