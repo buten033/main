@@ -1,9 +1,9 @@
 import numpy as np
 
-def run_stochastic_biquad_scaled(inputs, scale_factor=1000):
+def run_stochastic_biquad_scaled(inputs, scale_factor=100):
     """
-    Simulates the g->b->r Biquad CRN using Fixed-Point Scaling 
-    to prevent precision loss and output continuous decimals.
+    Simulates the g->b->r Biquad CRN for one full trial (all input cycles).
+    Uses Fixed-Point Scaling to prevent precision loss.
     """
     k_fast = 1000.0 
     k_slow = 1.0
@@ -64,12 +64,14 @@ def run_stochastic_biquad_scaled(inputs, scale_factor=1000):
         elif event == 11: state[9] -= 1; state[3] += 1
         elif event == 12: state[10] -= 1; state[5] += 1
         elif event == 13:
-            # Output sampling: SCALE BACK DOWN to get the high-precision decimal
+            # Output sampling: record Y scaled back down, then set Y to 0
             outputs.append(state[11] / scale_factor) 
             state[11] = 0                  
+            
+            # Advance to next input cycle
             cycle_idx += 1
             if cycle_idx < len(inputs):
-                # Scale the next input
+                # Set next X, keep other variables as they are
                 state[0] = inputs[cycle_idx] * scale_factor
                 state[14] = 0; state[12] = 1                
             else:
@@ -78,7 +80,7 @@ def run_stochastic_biquad_scaled(inputs, scale_factor=1000):
     return outputs
 
 def theoretical_biquad(inputs):
-    """Calculates the exact math using floating point DSP logic."""
+    """Calculates the exact math using floating point DSP logic for comparison."""
     A = np.zeros(len(inputs) + 2)
     Y = np.zeros(len(inputs))
     for i, x in enumerate(inputs):
@@ -91,11 +93,20 @@ def theoretical_biquad(inputs):
 inputs = [100, 5, 500, 20, 250]
 theoretical_y = theoretical_biquad(inputs)
 
-# Run the scaled stochastic simulation ONCE
-crn_outputs = run_stochastic_biquad_scaled(inputs, scale_factor=100)
+# Run exactly 5 simulation trials based on Professor Marc's email
+trials = 5
+all_crn_outputs = []
+
+print("Running 5 Stochastic Trials...\n")
+for t in range(trials):
+    run_output = run_stochastic_biquad_scaled(inputs, scale_factor=100)
+    all_crn_outputs.append(run_output)
+
+# Calculate the average across the 5 trials
+averaged_y = np.mean(all_crn_outputs, axis=0)
 
 # --- Formatted Output ---
-print(f"{'Cycle':<7} | {'Input X':<8} | {'Expected Y':<11} | {'Observed Y (Scaled)'}")
-print("-" * 55)
+print(f"{'Cycle':<7} | {'Input X':<8} | {'Expected Y':<11} | {'Avg Y (5 Trials)'}")
+print("-" * 50)
 for i in range(len(inputs)):
-    print(f"{i+1:<7} | {inputs[i]:<8} | {theoretical_y[i]:<11.3f} | {crn_outputs[i]:.3f}")
+    print(f"{i+1:<7} | {inputs[i]:<8} | {theoretical_y[i]:<11.3f} | {averaged_y[i]:.3f}")
