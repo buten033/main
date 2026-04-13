@@ -1,0 +1,116 @@
+import itertools
+
+# ==========================================
+# 1. PERMUTATION ENGINE & DEFINITIONS
+# ==========================================
+
+def cycle_to_perm(cycle_str):
+    nums = [int(x) for x in cycle_str]
+    perm = [0, 1, 2, 3, 4, 5]
+    for i in range(len(nums)):
+        perm[nums[i]] = nums[(i + 1) % len(nums)]
+    return perm
+
+I = [0, 1, 2, 3, 4, 5] 
+A = cycle_to_perm("14352")
+B = cycle_to_perm("14523")
+C = cycle_to_perm("13425")
+D = cycle_to_perm("12453")
+E = cycle_to_perm("14235")
+
+def inv(perm):
+    out = [0] * 6
+    for i in range(1, 6):
+        out[perm[i]] = i
+    return out
+
+A_, B_, C_, D_, E_ = inv(A), inv(B), inv(C), inv(D), inv(E)
+
+def compose(p1, p2):
+    return [p2[p1[i]] for i in range(6)]
+
+def cond(var, perm1, perm0=I):
+    return {'type': 'cond', 'var': var, '1': perm1, '0': perm0}
+
+def evaluate_sequence(sequence, env):
+    current_perm = I
+    for step in sequence:
+        if step['type'] == 'cond':
+            var_val = env.get(step['var'], 0)
+            if var_val == 1:
+                current_perm = compose(current_perm, step['1'])
+            else:
+                current_perm = compose(current_perm, step['0'])
+    return 0 if current_perm == I else 1
+
+def identify_logic(variables, outputs):
+    if len(variables) == 3:
+        if outputs == [0, 0, 0, 0, 0, 1, 1, 1]: return "f1 = (x1 AND x2) OR (x1 AND x3)"
+        if outputs == [0, 0, 1, 1, 0, 1, 1, 1]: return "f2 = x2 OR (x1 AND x3)"
+        if outputs == [0, 0, 0, 1, 0, 1, 0, 1]: return "f3 = (x2 AND x3) OR (x1 AND x3)"
+    return "Complex/Custom Logic (See truth table)"
+
+# ==========================================
+# 2. ACTUAL LOGIC SECTION (f3)
+# ==========================================
+variables = ['x1', 'x2', 'x3']
+
+# Sequence for f3: x3 * (x2' * x1')'
+sequence = [
+    cond('x3', C),
+    cond('x2', I, D),
+    cond('x1', I, C),
+    cond('x2', I, D_),
+    cond('x1', B, compose(C_, B)),
+    cond('x3', C_),
+    cond('x2', I, C),
+    cond('x1', I, D),
+    cond('x2', I, C_),
+    cond('x1', B_, compose(D_, B_))
+]
+
+# ==========================================
+# 3. EXECUTION AND OUTPUT
+# ==========================================
+print("=== Sequence Evaluation (Permutations) ===\n")
+header = " ".join(variables) + " | Output"
+print(header)
+print("-" * len(header))
+
+results = []
+for vals in itertools.product([0, 1], repeat=len(variables)):
+    env = dict(zip(variables, vals))
+    out = evaluate_sequence(sequence, env)
+    results.append(out)
+    row_vals = "  ".join(str(env[v]) for v in variables)
+    print(f" {row_vals}  |   {out}")
+
+print(f"\nDetected Gate Logic: {identify_logic(variables, results)}")
+
+# ==========================================
+# 4. TARGET EQUATION EXPECTED TRUTH TABLE
+# ==========================================
+def target_equation(x1, x2, x3):
+    return (x2 and x3) or (x1 and x3)
+
+print("\n\n=== Expected Truth Table (Target Equation) ===\n")
+print(header)
+print("-" * len(header))
+
+expected_results = []
+for vals in itertools.product([0, 1], repeat=len(variables)):
+    result = int(target_equation(*vals))
+    expected_results.append(result)
+    row_vals = "  ".join(str(v) for v in vals)
+    print(f" {row_vals}  |   {result}")
+
+# ==========================================
+# 5. AUTOMATIC VERIFICATION
+# ==========================================
+print("\n===========================")
+if results == expected_results:
+    print(f"✅ SUCCESS: The permutation sequence MATCHES the target equation!")
+    print(f"   Implemented Equation: {identify_logic(variables, results)}")
+else:
+    print("❌ ERROR: The permutation sequence DOES NOT MATCH the target equation.")
+print("===========================")
