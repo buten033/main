@@ -1,0 +1,55 @@
+import numpy as np
+
+def generate_stochastic_stream(probability, length=200000):
+    """Generates a random bit stream for a given probability."""
+    return (np.random.rand(length) < probability).astype(int)
+
+def simulate_circuit_1c(x_prob, num_bits=200000):
+    """Simulates a 5th-degree Bernstein polynomial circuit."""
+    
+    # 1. Math expectation (Theoretical)
+    expected_math = 0.5 - 1.25*(x_prob) + 1.25*(x_prob**2) - 0.625*(x_prob**3) + (5/32)*(x_prob**4) + (31/32)*(x_prob**5)
+    
+    # 2. Hardware Simulation
+    # Five independent streams for the input variable x
+    x1 = generate_stochastic_stream(x_prob, num_bits)
+    x2 = generate_stochastic_stream(x_prob, num_bits)
+    x3 = generate_stochastic_stream(x_prob, num_bits)
+    x4 = generate_stochastic_stream(x_prob, num_bits)
+    x5 = generate_stochastic_stream(x_prob, num_bits)
+    
+    # Constant probability streams for the calculated coefficients
+    c0 = generate_stochastic_stream(1/2,  num_bits)
+    c1 = generate_stochastic_stream(1/4,  num_bits)
+    c2 = generate_stochastic_stream(1/8,  num_bits)
+    c3 = generate_stochastic_stream(1/16, num_bits)
+    c4 = generate_stochastic_stream(1/32, num_bits)
+    c5 = generate_stochastic_stream(1.0,  num_bits)
+    
+    # Adder block: counts the number of 1s among the 5 x inputs
+    adder_output = x1 + x2 + x3 + x4 + x5
+    
+    # Multiplexer block: selects based on the adder's output
+    output_stream = np.zeros(num_bits, dtype=int)
+    output_stream = np.where(adder_output == 0, c0, output_stream)
+    output_stream = np.where(adder_output == 1, c1, output_stream)
+    output_stream = np.where(adder_output == 2, c2, output_stream)
+    output_stream = np.where(adder_output == 3, c3, output_stream)
+    output_stream = np.where(adder_output == 4, c4, output_stream)
+    output_stream = np.where(adder_output == 5, c5, output_stream)
+    
+    # Calculate empirical probability
+    simulated_prob = np.mean(output_stream)
+    
+    # Print demonstration for the current X
+    print(f"Input X = {x_prob}")
+    print(f"Expected Math Output: {expected_math:.5f}")
+    print(f"Simulated Circuit   : {simulated_prob:.5f}")
+    print("-" * 35)
+
+# Run the demonstration for the requested homework values
+test_values = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+print("Demonstrating Circuit for Problem 1(c):\n")
+for val in test_values:
+    simulate_circuit_1c(val)
